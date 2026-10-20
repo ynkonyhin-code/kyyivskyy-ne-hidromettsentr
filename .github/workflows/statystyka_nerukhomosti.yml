@@ -1,0 +1,73 @@
+# ФАЙЛ: statystyka_nerukhomosti.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Київська нерухомість» (щомісяця)
+# КУДИ КЛАСТИ: .github/workflows/statystyka_nerukhomosti.yml
+# ПАРА (у корені репозиторію): statystyka_nerukhomosti.py, statystyka_nerukhomosti_card.py, requirements_nerukhomosti.txt
+# Файл statystyka_nerukhomosti_state.json створюється скриптом сам і комітиться назад (потрібен permissions: contents: write).
+name: Kyiv Statystyka Nerukhomosti
+
+on:
+  schedule:
+    # 3-го, 5-го і 8-го числа о 08:00 UTC (10:00–11:00 за Києвом): публікується ПОПЕРЕДНІЙ повний місяць.
+    # Якщо 3-го дані ще не готові — скрипт завершиться помилкою й спробує знову 5-го і 8-го.
+    # Коли місяць уже опубліковано, зайві запуски нічого не роблять (див. state-файл).
+    - cron: "0 8 3,5,8 * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: нічого не публікувати, картки можна скачати з Artifacts, текст — у логах"
+        type: boolean
+        default: true
+      period:
+        description: "Місяць у форматі РРРР-ММ (порожньо = останній повний місяць)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kyiv-statystyka-nerukhomosti
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements_nerukhomosti.txt
+
+      - name: Шрифти з кирилицею
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core
+
+      - name: Install dependencies
+        run: pip install -r requirements_nerukhomosti.txt
+
+      - name: Publish
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          PERIOD: ${{ inputs.period }}
+          # ручний НЕ пробний запуск публікує одразу, навіть якщо цей місяць уже виходив
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python statystyka_nerukhomosti.py ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Save card preview (dry run)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: nerukhomist-cards-preview
+          path: |
+            statystyka_nerukhomosti_card.png
+            statystyka_nerukhomosti_card_2.png
+
+      - name: Save state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f statystyka_nerukhomosti_state.json ]; then git add statystyka_nerukhomosti_state.json; fi
+          git diff --cached --quiet || (git commit -m "statystyka_nerukhomosti: update state" && git pull --rebase origin "${{ github.ref_name }}" && git push)
