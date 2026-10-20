@@ -1,0 +1,60 @@
+# ФАЙЛ: weather_journal.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: щодня записує фактичну погоду Києва в журнал (для «Підсумку тижня»)
+# КУДИ КЛАСТИ: .github/workflows/weather_journal.yml
+# ПАРА (у корені репозиторію): weather_journal.py, events_db.py
+# Нічого не публікує в канал: лише зберігає journal/weather/<дата>.json у репозиторій.
+name: Kyiv Weather Journal
+
+on:
+  schedule:
+    # 00:40 по Києву: влітку (UTC+3) = 21:40 UTC, взимку (UTC+2) = 22:40 UTC. Зайвий запуск відсікає gate.
+    - cron: "40 21,22 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: лише показати, що було б записано"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write        # журнал зберігається коммітом у репозиторій
+
+concurrency:
+  group: kyiv-weather-journal
+  cancel-in-progress: false
+
+jobs:
+  journal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Gate
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            run=true
+          else
+            hour=$((10#$(TZ=Europe/Kyiv date +%H)))
+            if [ "$hour" = "0" ]; then run=true; else run=false; fi
+          fi
+          echo "run=$run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: pip install requests
+
+      - name: Save yesterday's weather
+        if: steps.gate.outputs.run == 'true'
+        env:
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python weather_journal.py

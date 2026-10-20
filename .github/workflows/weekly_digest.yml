@@ -1,0 +1,60 @@
+# ФАЙЛ: weekly_digest.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Підсумок тижня» (щопонеділка ~10:00, за Пн–Нд)
+# КУДИ КЛАСТИ: .github/workflows/weekly_digest.yml
+# ПАРА (у корені репозиторію): weekly_digest.py, events_db.py; дані беруться з папки journal/
+name: Kyiv Weekly Digest
+
+on:
+  schedule:
+    # 10:10 по Києву у понеділок: влітку (UTC+3) = 07:10 UTC, взимку (UTC+2) = 08:10 UTC.
+    - cron: "10 7,8 * * 1"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: лише показати текст у логу, нічого не публікувати"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kyiv-weekly-digest
+  cancel-in-progress: false
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Gate
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            run=true
+          else
+            hour=$((10#$(TZ=Europe/Kyiv date +%H)))
+            if [ "$hour" = "10" ]; then run=true; else run=false; fi
+          fi
+          echo "run=$run"
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: pip install requests
+
+      - name: Publish weekly digest
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python weekly_digest.py ${{ inputs.dry_run && '--dry' || '' }}
