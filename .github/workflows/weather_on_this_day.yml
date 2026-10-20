@@ -1,0 +1,50 @@
+# ФАЙЛ: weather_on_this_day.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Цей день у погоді» (щодня ~10:00)
+# КУДИ КЛАСТИ: .github/workflows/weather_on_this_day.yml
+# ПАРА (у корені репозиторію): weather_on_this_day.py, requirements_weather_on_this_day.txt
+name: Kyiv Weather On This Day
+
+on:
+  schedule:
+    - cron: "0 7 * * *"    # 07:00 UTC = 10:00 по Києву влітку, 09:00 взимку
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: нічого не публікувати, у логах текст, графік — в Artifacts"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kyiv-weather-on-this-day
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements_weather_on_this_day.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements_weather_on_this_day.txt
+
+      - name: Publish
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+        run: python weather_on_this_day.py ${{ inputs.dry_run && '--dry' || '' }}
+
+      - name: Save chart preview (dry run)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: weather-on-this-day-preview
+          path: weather_on_this_day.png
