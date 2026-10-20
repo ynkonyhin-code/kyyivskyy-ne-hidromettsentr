@@ -1,0 +1,73 @@
+# ФАЙЛ: space_weather.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Магнітне поле Землі сьогодні»
+#   щодня о 09:00 — короткий прогноз; кожні 30 хв — перевірка бурі (пост лише при Kp >= 5, не частіше одного разу на рівень за добу)
+# КУДИ КЛАСТИ: .github/workflows/space_weather.yml
+# ПАРА (у корені репозиторію): space_weather.py, events_db.py
+name: Kyiv Space Weather
+
+on:
+  schedule:
+    - cron: "5 6,7 * * *"     # щоденний пост: 09:05 по Києву (літо UTC+3 / зима UTC+2), зайвий запуск відсікає gate
+    - cron: "*/30 * * * *"    # перевірка магнітної бурі
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Режим"
+        type: choice
+        options: [daily, alert]
+        default: daily
+      dry_run:
+        description: "Пробний запуск: показати текст у логу, нічого не публікувати"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write        # events_db.py зберігає журнал подій (journal/) у репозиторій
+
+concurrency:
+  group: kyiv-space-weather
+  cancel-in-progress: false
+
+jobs:
+  space:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Gate
+        id: gate
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          INPUT_MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            mode="$INPUT_MODE"; run=true
+          elif [ "$SCHEDULE" = "5 6,7 * * *" ]; then
+            mode=daily
+            hour=$((10#$(TZ=Europe/Kyiv date +%H)))
+            if [ "$hour" = "9" ]; then run=true; else run=false; fi
+          else
+            mode=alert; run=true
+          fi
+          echo "mode=$mode run=$run"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "run=$run"   >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.run == 'true'
+
+      - uses: actions/setup-python@v5
+        if: steps.gate.outputs.run == 'true'
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.gate.outputs.run == 'true'
+        run: pip install requests
+
+      - name: Run space weather
+        if: steps.gate.outputs.run == 'true'
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python space_weather.py ${{ steps.gate.outputs.mode }}

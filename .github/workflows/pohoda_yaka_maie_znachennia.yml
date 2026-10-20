@@ -1,0 +1,53 @@
+# ФАЙЛ: pohoda_yaka_maie_znachennia.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Погода, яка має значення» (щовечора ~21:00)
+# КУДИ КЛАСТИ: .github/workflows/pohoda_yaka_maie_znachennia.yml
+# ПАРА (у корені репозиторію): pohoda_yaka_maie_znachennia.py, pohoda_yaka_maie_znachennia_card.py,
+#                              pohoda_yaka_maie_znachennia_data.json, requirements_pohoda_yaka_maie_znachennia.txt
+name: Kyiv Pohoda Yaka Maie Znachennia
+
+on:
+  schedule:
+    # 21:10 по Києву: влітку (UTC+3) = 18:10 UTC, взимку (UTC+2) = 19:10 UTC.
+    # Зайвий запуск скрипт сам відсікає (публікує лише коли у Києві 21:xx).
+    - cron: "10 18,19 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: нічого не публікувати, картку можна скачати з Artifacts"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kyiv-pohoda-yaka-maie-znachennia
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements_pohoda_yaka_maie_znachennia.txt
+
+      - name: Publish
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          # ручний НЕ пробний запуск публікує одразу, навіть не о 21:00
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python pohoda_yaka_maie_znachennia.py ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Save card preview (dry run)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: pohoda-card-preview
+          path: pohoda_yaka_maie_znachennia_card.png
