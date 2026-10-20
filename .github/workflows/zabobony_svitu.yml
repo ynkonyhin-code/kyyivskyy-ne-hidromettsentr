@@ -1,0 +1,58 @@
+# ФАЙЛ: zabobony_svitu.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Найцікавіші забобони світу» (щодня 12:00 + 0–90 хв)
+# КУДИ КЛАСТИ: .github/workflows/zabobony_svitu.yml
+# ПАРА (у корені репозиторію): zabobony_svitu.py, zabobony_svitu_data.py, zabobony_svitu_requirements.txt
+# Файл zabobony_svitu_state.json створюється скриптом сам і комітиться назад (потрібен permissions: contents: write).
+name: Kyiv Zabobony Svitu
+
+on:
+  schedule:
+    # Перевірка кожні 10 хв у вікні 09:00–11:59 UTC — це покриває 12:00–13:30 за Києвом (час публікації) і влітку, і взимку.
+    # Точний час публікації (12:00 + 0–90 хв) скрипт визначає сам.
+    - cron: "*/10 9-11 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: показати випуск у логах, нічого не публікувати і не зберігати"
+        type: boolean
+        default: true
+      test_post:
+        description: "Тест: надіслати наступний випуск у канал зараз (стан не зберігається; лише якщо dry_run вимкнено)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kyiv-zabobony-svitu
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: zabobony_svitu_requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r zabobony_svitu_requirements.txt
+
+      - name: Run zabobony_svitu
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          TEST_POST: ${{ inputs.test_post }}
+        run: python zabobony_svitu.py ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Save state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f zabobony_svitu_state.json ]; then git add zabobony_svitu_state.json; fi
+          git diff --cached --quiet || (git commit -m "zabobony_svitu: update state" && git pull --rebase origin "${{ github.ref_name }}" && git push)

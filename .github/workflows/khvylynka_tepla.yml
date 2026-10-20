@@ -1,0 +1,58 @@
+# ФАЙЛ: khvylynka_tepla.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Хвилинка тепла» (щодня ~19:00)
+# КУДИ КЛАСТИ: .github/workflows/khvylynka_tepla.yml
+# ПАРА (у корені репозиторію): khvylynka_tepla.py, khvylynka_tepla_card.py,
+#                              khvylynka_tepla_posts.json, requirements_khvylynka_tepla.txt
+name: Kyiv Khvylynka Tepla
+
+on:
+  schedule:
+    # 19:05 по Києву: влітку (UTC+3) = 16:05 UTC, взимку (UTC+2) = 17:05 UTC.
+    # Зайвий запуск скрипт сам відсікає (публікує лише коли у Києві 19:xx).
+    - cron: "5 16,17 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: нічого не публікувати, картку можна скачати з Artifacts"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kyiv-khvylynka-tepla
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements_khvylynka_tepla.txt
+
+      - name: Шрифти з кирилицею
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core
+
+      - name: Install dependencies
+        run: pip install -r requirements_khvylynka_tepla.txt
+
+      - name: Publish
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          # ручний НЕ пробний запуск публікує одразу, навіть не о 19:00
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python khvylynka_tepla.py ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Save card preview (dry run)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: khvylynka-card-preview
+          path: khvylynka_tepla_card.png
