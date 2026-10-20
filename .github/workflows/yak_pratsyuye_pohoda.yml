@@ -1,0 +1,76 @@
+# ФАЙЛ: yak_pratsyuye_pohoda.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Як працює погода» (неділя, 09:00 + 0–60 хв)
+# КУДИ КЛАСТИ: .github/workflows/yak_pratsyuye_pohoda.yml
+# ПАРА (у корені репозиторію): yak_pratsyuye_pohoda.py, yak_pratsyuye_pohoda_data.py, yak_pratsyuye_pohoda_images.py,
+#                              yak_pratsyuye_pohoda_font.ttf, yak_pratsyuye_pohoda_requirements.txt
+# Файл yak_pratsyuye_pohoda_state.json створюється скриптом сам і комітиться назад (потрібен permissions: contents: write).
+name: Kyiv Yak Pratsyuye Pohoda
+
+on:
+  schedule:
+    # Неділя. Вікно 06:00–08:59 UTC покриває 09:00–11:00 за Києвом і влітку, і взимку;
+    # точний час (09:00 + 0–60 хв) визначає сам скрипт.
+    - cron: "*/10 6-8 * * 0"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: нічого не публікувати, схему можна скачати з Artifacts"
+        type: boolean
+        default: true
+      test_post:
+        description: "Тест: надіслати випуск зараз (лише якщо dry_run вимкнено; стан не зберігається)"
+        type: boolean
+        default: false
+      test_issue:
+        description: "Номер випуску для тесту (порожньо = наступний за чергою)"
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kyiv-yak-pratsyuye-pohoda
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: yak_pratsyuye_pohoda_requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r yak_pratsyuye_pohoda_requirements.txt
+
+      - name: Run yak_pratsyuye_pohoda
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          TEST_CHAT_ID: ${{ secrets.TEST_CHAT_ID }}   # необов'язковий секрет: куди надсилати тестові пости
+          DRY_RUN: ${{ inputs.dry_run }}
+          TEST_POST: ${{ inputs.test_post }}
+          TEST_ISSUE: ${{ inputs.test_issue }}
+        run: python yak_pratsyuye_pohoda.py
+
+      - name: Save dry-run preview
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: yak-pratsyuye-pohoda-preview
+          path: |
+            yak_pratsyuye_pohoda_*.png
+            yak_pratsyuye_pohoda_*.jpg
+          if-no-files-found: ignore
+
+      - name: Save state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f yak_pratsyuye_pohoda_state.json ]; then git add yak_pratsyuye_pohoda_state.json; fi
+          git diff --cached --quiet || (git commit -m "yak_pratsyuye_pohoda: update state" && git pull --rebase origin "${{ github.ref_name }}" && git push)
