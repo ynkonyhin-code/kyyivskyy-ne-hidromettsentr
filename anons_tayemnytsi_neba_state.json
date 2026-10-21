@@ -1,7 +1,8 @@
 {
   "done": [
-    "2026-10-21-morning"
+    "2026-10-21-morning",
+    "2026-10-21-evening"
   ],
-  "last_message_id": 55,
-  "next_image": 1
+  "last_message_id": 78,
+  "next_image": 2
 }
