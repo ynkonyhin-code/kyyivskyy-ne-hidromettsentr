@@ -1,0 +1,85 @@
+# ФАЙЛ: kotyk_dezhurnyi.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: котик-черговий (05:00, 23:05) + реклама каналу (14:05, 22:35)
+# КУДИ КЛАСТИ: .github/workflows/kotyk_dezhurnyi.yml
+# ПАРА (у корені репозиторію): kotyk_dezhurnyi.py, kotyk_avatar.png, requirements_kotyk_dezhurnyi.txt
+# РЕКЛАМА: покладіть у корінь репо reklama_kanalu.jpg (або .png/.webp; кілька файлів reklama_kanalu_1.jpg, _2.jpg… чергуються).
+# Без цього файлу рекламні слоти просто пропускаються. Файл kotyk_dezhurnyi_state.json створюється скриптом і комітиться назад.
+name: Kyiv Kotyk Dezhurnyi
+
+on:
+  schedule:
+    # Кожен слот стартує за ~20 хв до цілі (GitHub затримує запуски), скрипт чекає до точної хвилини.
+    # Два cron на слот — літній і зимовий час; зайвий запуск скрипт сам відсікає (поза вікном слота) або бачить «вже опубліковано».
+    - cron: "40 1,2 * * *"      # morning   — ціль 05:00
+    - cron: "45 10,11 * * *"    # ad_day    — ціль 14:05
+    - cron: "15 19,20 * * *"    # ad_night  — ціль 22:35
+    - cron: "45 19,20 * * *"    # evening   — ціль 23:05
+  workflow_dispatch:
+    inputs:
+      slot:
+        description: "Який слот запустити вручну"
+        type: choice
+        options: [morning, evening, ad_day, ad_night]
+        default: morning
+      dry_run:
+        description: "Пробний запуск: нічого не публікувати; текст — у логах, картинка — в Artifacts"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kyiv-kotyk-${{ github.event.schedule || inputs.slot }}
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements_kotyk_dezhurnyi.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements_kotyk_dezhurnyi.txt
+
+      - name: Визначити слот
+        run: |
+          case "${{ github.event.schedule }}" in
+            "40 1,2 * * *")   S=morning ;;
+            "45 10,11 * * *") S=ad_day ;;
+            "15 19,20 * * *") S=ad_night ;;
+            "45 19,20 * * *") S=evening ;;
+            *)                S="${{ inputs.slot }}" ;;
+          esac
+          echo "SLOT=$S" >> "$GITHUB_ENV"
+          echo "Слот: $S"
+
+      - name: Publish
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          # ручний НЕ пробний запуск публікує одразу, без очікування і без перевірки «вже опубліковано»
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python kotyk_dezhurnyi.py --slot "$SLOT" ${{ inputs.dry_run && '--dry-run' || '' }}
+
+      - name: Save preview (dry run)
+        if: inputs.dry_run
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotyk-preview
+          path: kotyk_preview_*.jpg
+          if-no-files-found: ignore
+
+      - name: Save state
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f kotyk_dezhurnyi_state.json ]; then git add kotyk_dezhurnyi_state.json; fi
+          git diff --cached --quiet || (git commit -m "kotyk_dezhurnyi: update state" && git pull --rebase origin "${{ github.ref_name }}" && git push)

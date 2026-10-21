@@ -1,0 +1,53 @@
+# ФАЙЛ: zahalni_boyovi_vtraty.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Загальні бойові втрати ворога» (щойно Генштаб публікує зведення)
+# КУДИ КЛАСТИ: .github/workflows/zahalni_boyovi_vtraty.yml
+# ПАРА (у корені репозиторію): zahalni_boyovi_vtraty.py, requirements-vtraty.txt, zahalni_boyovi_vtraty_posted.txt
+# Файл zahalni_boyovi_vtraty_posted.txt — історія вже опублікованих постів (комітиться назад скриптом-workflow).
+name: Kyiv Zahalni Boyovi Vtraty
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"        # кожні 15 хв; нове зведення публікується одразу, старі не повторюються
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: показати в логах найсвіжіше зведення, нічого не публікувати й не записувати"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kyiv-zahalni-boyovi-vtraty
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-vtraty.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-vtraty.txt
+
+      - name: Run zahalni_boyovi_vtraty
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+        run: python zahalni_boyovi_vtraty.py
+
+      - name: Save posted history
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f zahalni_boyovi_vtraty_posted.txt ]; then git add zahalni_boyovi_vtraty_posted.txt; fi
+          git diff --cached --quiet || (git commit -m "zahalni_boyovi_vtraty: update posted history" && git pull --rebase origin "${{ github.ref_name }}" && git push)
