@@ -1,0 +1,73 @@
+# ФАЙЛ: oblast_daily.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Київщина: прогноз на день» (щодня рівно о 06:00)
+# КУДИ КЛАСТИ: .github/workflows/oblast_daily.yml
+# ПАРА (у корені репозиторію): oblast_daily.py, requirements_oblast_daily.txt
+# СЕКРЕТ: WEATHERAPI_KEY (ключ WeatherAPI.com; той самий, що в Сумському репо, можна використати повторно).
+# Файл oblast_daily_state.json створюється скриптом і комітиться назад: захист від повторної публікації за добу.
+name: Kyiv Oblast Daily
+
+on:
+  schedule:
+    # GitHub затримує запуски на «круглу годину», тому стартуємо заздалегідь: 02:40 і 03:40 UTC.
+    #   літо  (UTC+3): 05:40 — основний запуск, 06:40 — резервний (якщо перший не відпрацював);
+    #   зима  (UTC+2): 04:40 — скрипт сам відсікає (поза вікном 05:00–08:00), 05:40 — основний.
+    # Основний запуск збирає прогноз, малює картинку й чекає до 06:00 за Києвом.
+    - cron: "40 2,3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: нічого не публікувати, картку можна скачати з Artifacts"
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kyiv-oblast-daily
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements_oblast_daily.txt
+
+      - name: Шрифти з кирилицею
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-dejavu-core
+
+      - name: Install dependencies
+        run: pip install -r requirements_oblast_daily.txt
+
+      - name: Publish oblast forecast
+        env:
+          WEATHERAPI_KEY: ${{ secrets.WEATHERAPI_KEY }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          DRY_RUN: ${{ inputs.dry_run && '1' || '' }}
+          # ручний НЕ пробний запуск публікує одразу, без очікування 06:00 і без перевірки «вже опубліковано»
+          FORCE_RUN: ${{ github.event_name == 'workflow_dispatch' && '1' || '' }}
+        run: python oblast_daily.py
+
+      - name: Save preview image
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: oblast-forecast-image
+          path: oblast_forecast.png
+          if-no-files-found: ignore
+          retention-days: 3
+
+      - name: Save state
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f oblast_daily_state.json ]; then git add oblast_daily_state.json; fi
+          git diff --cached --quiet || (git commit -m "oblast_daily: update state" && git pull --rebase origin "${{ github.ref_name }}" && git push)
