@@ -2,8 +2,9 @@
   "done": [
     "2026-10-21-morning",
     "2026-10-21-evening",
-    "2026-10-22-morning"
+    "2026-10-22-morning",
+    "2026-10-22-evening"
   ],
-  "last_message_id": 99,
-  "next_image": 3
+  "last_message_id": 131,
+  "next_image": 1
 }
