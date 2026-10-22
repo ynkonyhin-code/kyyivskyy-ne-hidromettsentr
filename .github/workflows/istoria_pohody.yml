@@ -1,0 +1,62 @@
+# ФАЙЛ: istoria_pohody.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Погода, що змінила історію» (четвер, 17:30 + 0–45 хв)
+# КУДИ КЛАСТИ: .github/workflows/istoria_pohody.yml
+# ПАРА (у корені репозиторію): istoria_pohody.py, istoria_pohody_data.py, requirements_rubryky.txt
+# Файл istoria_pohody_state.json створюється скриптом і комітиться назад (потрібен permissions: contents: write).
+name: Kyiv Istoria Pohody
+
+on:
+  schedule:
+    # Четвер (4). Вікно 14:00–16:59 UTC покриває 17:00–19:59 за Києвом влітку й 16:00–18:59 взимку;
+    # точний час (17:30 + 0–45 хв) визначає сам скрипт.
+    - cron: "*/10 14-16 * * 4"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Пробний запуск: показати історію в логах, нічого не публікувати й не зберігати"
+        type: boolean
+        default: true
+      index:
+        description: "Номер історії для перегляду/тесту, починаючи з 0 (порожньо = наступне за чергою)"
+        type: string
+        default: ""
+      test_post:
+        description: "Тест: надіслати історію в канал зараз (лише якщо dry_run вимкнено; стан не зберігається)"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: kyiv-istoria-pohody
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements_rubryky.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements_rubryky.txt
+
+      - name: Run istoria_pohody
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          TEST_POST: ${{ inputs.test_post }}
+        run: python istoria_pohody.py ${{ inputs.dry_run && '--dry-run' || '' }} ${{ inputs.index != '' && format('--index {0}', inputs.index) || '' }}
+
+      - name: Save state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f istoria_pohody_state.json ]; then git add istoria_pohody_state.json; fi
+          git diff --cached --quiet || (git commit -m "istoria_pohody: update state" && git pull --rebase origin "${{ github.ref_name }}" && git push)
