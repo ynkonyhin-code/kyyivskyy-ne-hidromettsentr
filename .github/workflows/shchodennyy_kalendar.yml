@@ -1,0 +1,93 @@
+# ФАЙЛ: shchodennyy_kalendar.yml | ПРОЄКТ: «Київський не гідрометцентр» | ЗАДАЧА: «Щоденний календар» — щодня о 07:50 за Києвом
+# КУДИ КЛАСТИ: .github/workflows/shchodennyy_kalendar.yml
+# ПАРА (у корені репозиторію): shchodennyy_kalendar.py, shchodennyy_kalendar_card.py, shchodennyy_kalendar_data.py,
+#   requirements_shchodennyy_kalendar.txt, kotyk_avatar.png (аватар у шапці картки). Файл shchodennyy_kalendar_state.json
+#   створюється скриптом і комітиться назад (захист від повторної публікації за добу).
+#
+# ЯК ЗМІНИТИ ЧАС ПУБЛІКАЦІЇ (напр. на 08:20):
+#   1) у shchodennyy_kalendar.py:  POST_AT = "08:20"
+#   2) тут cron «старт за ~20 хв до цілі»: 08:00 за Києвом = 05:00 UTC (літо) і 06:00 UTC (зима)  →  "0 5,6 * * *"
+name: Щоденний календар — Київський не гідрометцентр
+
+on:
+  schedule:
+    # Старт за ~20 хв до цілі 07:50 (GitHub запускає cron із запізненням), скрипт чекає до точної хвилини.
+    # Київ: літо UTC+3 → 04:30 UTC = 07:30; зима UTC+2 → 05:30 UTC = 07:30.
+    # Два cron — на літній і зимовий час; зайвий скрипт відсікає сам (поза вікном часу або «вже опубліковано»).
+    - cron: "30 4,5 * * *"
+  workflow_dispatch:
+    inputs:
+      date:
+        description: "Дата РРРР-ММ-ДД (порожньо — сьогодні)"
+        required: false
+        type: string
+      dry_run:
+        description: "Пробний запуск: нічого не публікувати; текст — у логах, картка — в Artifacts"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write            # потрібно, щоб закомітити shchodennyy_kalendar_state.json
+
+concurrency:
+  group: shchodennyy-kalendar-kyiv
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Отримати репозиторій
+        uses: actions/checkout@v4
+
+      - name: Налаштувати Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements_shchodennyy_kalendar.txt
+
+      - name: Встановити шрифт із підтримкою кирилиці
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends fonts-dejavu-core
+
+      - name: Встановити залежності
+        run: pip install -r requirements_shchodennyy_kalendar.txt
+
+      - name: Сформувати й опублікувати календар
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CHAT_ID: ${{ secrets.CHAT_ID }}
+          DATE_IN: ${{ inputs.date }}
+          DRY_IN: ${{ inputs.dry_run }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          ARGS=""
+          if [ -n "$DATE_IN" ]; then ARGS="$ARGS --date $DATE_IN"; fi
+          if [ "$DRY_IN" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          # ручний НЕ пробний запуск публікує одразу, без очікування і без перевірки «вже опубліковано»
+          if [ "$EVENT" = "workflow_dispatch" ] && [ "$DRY_IN" != "true" ]; then ARGS="$ARGS --force"; fi
+          python -u shchodennyy_kalendar.py $ARGS
+
+      - name: Зберегти картку (пробний запуск)
+        if: ${{ inputs.dry_run }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kalendar-preview
+          path: output/*.png
+          if-no-files-found: ignore
+
+      - name: Зберегти стан
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if [ -f shchodennyy_kalendar_state.json ]; then git add shchodennyy_kalendar_state.json; fi
+          if ! git diff --cached --quiet; then
+            git commit -m "shchodennyy_kalendar: update state"
+            for i in 1 2 3; do
+              git pull --rebase origin "${{ github.ref_name }}" && git push && break
+              sleep 5
+            done
+          fi
