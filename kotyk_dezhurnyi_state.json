@@ -15,6 +15,9 @@
    "ad_day",
    "ad_night",
    "evening"
+  ],
+  "2026-10-24": [
+   "morning"
   ]
  }
 }
