@@ -1,9 +1,5 @@
 {
  "days": {
-  "2026-10-21": [
-   "morning",
-   "evening"
-  ],
   "2026-10-22": [
    "morning",
    "ad_day",
@@ -21,6 +17,9 @@
    "ad_day",
    "ad_night",
    "evening"
+  ],
+  "2026-10-25": [
+   "morning"
   ]
  }
 }
