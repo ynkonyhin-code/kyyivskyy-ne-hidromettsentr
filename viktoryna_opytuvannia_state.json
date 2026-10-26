@@ -9,5 +9,16 @@
    "correct": 1,
    "answer": "Атмосферний тиск"
   }
+ },
+ "poll": {
+  "next_index": 1,
+  "issue_no": 1,
+  "last_date": "2026-10-26",
+  "last": {
+   "message_id": 264,
+   "q": "Яка ваша улюблена пора року?",
+   "correct": null,
+   "answer": null
+  }
  }
 }
