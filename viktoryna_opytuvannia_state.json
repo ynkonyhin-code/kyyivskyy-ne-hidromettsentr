@@ -11,12 +11,12 @@
   }
  },
  "poll": {
-  "next_index": 1,
-  "issue_no": 1,
-  "last_date": "2026-10-26",
+  "next_index": 2,
+  "issue_no": 2,
+  "last_date": "2026-11-02",
   "last": {
-   "message_id": 264,
-   "q": "Яка ваша улюблена пора року?",
+   "message_id": 497,
+   "q": "О котрій вам найзручніше отримувати прогноз погоди?",
    "correct": null,
    "answer": null
   }
